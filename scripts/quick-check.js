@@ -1702,8 +1702,8 @@ function checkQishuiProviderGuard() {
   if (!/function qishuiImageUrl/.test(qishuiText) || !/~c5_375x375\.jpg/.test(qishuiText) || !/~c5_300x300\.jpg/.test(qishuiText) || !/directPlayable: true/.test(qishuiText)) {
     fail('Qishui playlist tracks must build full urls+uri covers and mark PC-session tracks as directly playable');
   }
-  if (!/\/luna\/pc\/track_v2/.test(qishuiText) || !/function fetchQishuiPcTrackV2/.test(qishuiText) || !/function resolveQishuiDownloadInfo/.test(qishuiText) || !/play_info_list/.test(qishuiText) || !/url_player_info/.test(qishuiText) || !/video_model/.test(qishuiText)) {
-    fail('Qishui playback must resolve PC track_v2 audio from play_info_list, url_player_info, or video_model');
+  if (!/\/luna\/h5\/track_v2/.test(qishuiText) || !/function fetchQishuiH5TrackV2/.test(qishuiText) || !/function resolveQishuiDownloadInfo/.test(qishuiText) || !/play_info_list/.test(qishuiText) || !/url_player_info/.test(qishuiText) || !/video_model/.test(qishuiText)) {
+    fail('Qishui playback must resolve h5 track_v2 audio from play_info_list, url_player_info, or video_model');
   }
   const qishuiSongRouteStart = serverText.indexOf("if (pn === '/api/qishui/song/url')");
   const qishuiSongRouteEnd = serverText.indexOf("if (pn === '/api/qishui/lyric')", qishuiSongRouteStart);
@@ -1726,7 +1726,7 @@ function checkQishuiProviderGuard() {
   if (webLibraryStart < 0 || webLibraryEnd <= webLibraryStart || !/if \(\/created\|collection\|collect\/i\.test\(label\)\)/.test(webLibraryText) || !/extractQishuiPlaylistCards\(json\)/.test(webLibraryText)) {
     fail('Qishui library sync must only extract playlist cards from created/collection responses, never profile or recent-track payloads');
   }
-  if (!/async function handleQishuiSearch\(keywords, limit, cookieText, offset\)/.test(qishuiText) || !/handleQishuiStatus\(cookieText\)/.test(qishuiText) || !/qishuiCookieFingerprint\(cookieText\)/.test(qishuiText) || !/handleQishuiSearch\(kw, limit, qishuiCookie, offset\)/.test(serverText)) {
+  if (!/async function handleQishuiSearch\(keywords, limit, cookieText, offset\)/.test(qishuiText) || !/handleQishuiStatus\(cookieText\)/.test(qishuiText) || !/qishuiCookieFingerprint\(cookie\)/.test(qishuiText) || !/handleQishuiSearch\(kw, limit, qishuiCookie, offset\)/.test(serverText)) {
     fail('Qishui search status and cache keys must use the saved web-session cookie');
   }
   if (!/function fetchQishuiWebLibraryFeedFallback/.test(qishuiText) || !/qishui-web-library-fallback/.test(qishuiText) || !/fetchQishuiWebPlaylistTracks\(pl\.id/.test(qishuiText)) {

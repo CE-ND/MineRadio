@@ -113,7 +113,7 @@ test('empty PC responses keep public search available but identify an expired pl
   assert.equal(search.publicCatalog, true);
   assert.equal(search.loggedIn, false);
   assert.equal(search.reauthRequired, true);
-  assert.doesNotMatch(search.pcSearchError, /Invalid JSON/);
+  assert.doesNotMatch(search.catalogSearchError, /Invalid JSON/);
   const playback = await qishui.handleQishuiSongUrl({ id: 'public-fixture' }, cookie);
   assert.equal(playback.playable, false);
   assert.equal(playback.reason, 'login_required');
@@ -124,7 +124,7 @@ test('a failed player-info resolution retries immediately and cached audio canno
   let playerRequests = 0;
   mockRequests(t, url => {
     if (url.pathname === '/luna/pc/me') return { body: validProfile };
-    if (url.pathname === '/luna/pc/track_v2') return { body: { data: {
+    if (url.pathname === '/luna/h5/track_v2') return { body: { data: {
       track: { id: 'recover-stream', duration_ms: 180000 },
       track_player: { url_player_info: 'https://media.example/player-info' },
     } } };
@@ -164,7 +164,7 @@ test('playback settles under a wall-clock deadline even when DNS or the response
   const result = await qishui.handleQishuiSongUrl({ id: 'never-connects' }, cookie);
   assert.equal(result.playable, false);
   assert.equal(result.stale, true);
-  assert.deepEqual(deadlines, [3000, 3000, 2500]);
+  assert.deepEqual(deadlines, [4000, 2500]);
   assert.doesNotMatch(result.message, /Invalid JSON/);
 });
 

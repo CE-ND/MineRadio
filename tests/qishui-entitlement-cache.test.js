@@ -41,30 +41,29 @@ function trackPayload(id, options) {
   options = options || {};
   const restricted = !!options.restricted;
   return {
-    data: {
-      // This generic block is intentionally ambiguous and must never override
-      // the verified current-account state returned by /luna/pc/me.
-      membership: {
-        is_vip: false,
-        vip_type: 0,
-      },
-      track: {
-        id,
-        duration_ms: 180000,
-        only_vip_playable: restricted,
-        need_vip: restricted,
-        fee: restricted ? 1 : 0,
-        privilege: restricted ? 10 : 0,
-        audio_info: {
-          play_info_list: [{
-            main_play_url: options.url,
-            duration: 180,
-            bitrate: options.bitrate || 128000,
-            quality: options.quality || 'standard',
-            format: options.format || 'm4a',
-          }],
-        },
-      },
+    // This generic block is intentionally ambiguous and must never override
+    // the verified current-account state returned by /luna/pc/me.
+    membership: {
+      is_vip: false,
+      vip_type: 0,
+    },
+    track: {
+      id,
+      duration_ms: 180000,
+      label_info: { only_vip_playable: restricted },
+    },
+    track_player: {
+      video_model: JSON.stringify({
+        status: 10,
+        video_duration: 180,
+        media_type: 'audio',
+        video_list: [{
+          main_url: options.url,
+          backup_url: '',
+          video_meta: { quality: options.quality || 'standard', bitrate: options.bitrate || 128000 },
+          gear_des_key: options.quality || 'standard',
+        }],
+      }),
     },
   };
 }
@@ -102,8 +101,8 @@ async function testAmbiguousTrackBlockFallsBackToVerifiedMe() {
   await withHttpsMock(({ url, options }) => {
     const parsed = new URL(url);
     assert.strictEqual(parsed.hostname, 'api.qishui.com');
-    if (parsed.pathname === '/luna/pc/track_v2') {
-      assert.strictEqual(options.method, 'POST');
+    if (parsed.pathname === '/luna/h5/track_v2') {
+      assert.strictEqual(options.method || 'GET', 'GET');
       return {
         body: trackPayload('qishui-vip-fallback', {
           restricted: true,
@@ -153,7 +152,7 @@ async function testTrackMetadataCacheIsAccountScopedAndReusable() {
   await withHttpsMock(({ url }) => {
     const parsed = new URL(url);
     assert.strictEqual(parsed.hostname, 'api.qishui.com');
-    if (parsed.pathname === '/luna/pc/track_v2') {
+    if (parsed.pathname === '/luna/h5/track_v2') {
       trackRequests += 1;
       return {
         body: trackPayload('qishui-metadata-cache', {
@@ -198,7 +197,7 @@ async function testTrackMetadataCacheIsAccountScopedAndReusable() {
     assert.strictEqual(second.url, mediaUrl);
     assert.strictEqual(otherAccount.url, mediaUrl);
   });
-  assert.strictEqual(trackRequests, 2, 'metadata may be reused in one account but must be refetched for another account');
+  assert.strictEqual(trackRequests, 1, 'h5 track metadata carries no account state and must be reusable across accounts');
   assert.strictEqual(meRequests, 2, 'membership verification must remain isolated between accounts');
 }
 

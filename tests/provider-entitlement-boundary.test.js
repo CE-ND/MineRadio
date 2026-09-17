@@ -83,31 +83,30 @@ function unknownKugouWebRoleInfo() {
 
 function qishuiTrackPayload(id, requiresVip, mediaUrl) {
   return {
-    data: {
-      user_membership: {
-        is_vip: false,
-        is_svip: false,
-        vip_type: 0,
-        vip_level: 0,
-        member_level: 0,
-      },
-      track: {
-        id,
-        duration_ms: 180000,
-        is_vip: requiresVip,
-        need_vip: requiresVip,
-        only_vip_playable: requiresVip,
-        fee: requiresVip ? 1 : 0,
-        privilege: requiresVip ? 10 : 0,
-        audio_info: {
-          play_info_list: [{
-            main_play_url: mediaUrl,
-            duration: 180,
-            format: 'm4a',
-            bitrate: 128000,
-          }],
-        },
-      },
+    user_membership: {
+      is_vip: false,
+      is_svip: false,
+      vip_type: 0,
+      vip_level: 0,
+      member_level: 0,
+    },
+    track: {
+      id,
+      duration_ms: 180000,
+      label_info: { only_vip_playable: requiresVip },
+    },
+    track_player: {
+      video_model: JSON.stringify({
+        status: 10,
+        video_duration: 180,
+        media_type: 'audio',
+        video_list: [{
+          main_url: mediaUrl,
+          backup_url: '',
+          video_meta: { quality: requiresVip ? 'lossless' : 'medium' },
+          gear_des_key: requiresVip ? 'lossless' : 'medium',
+        }],
+      }),
     },
   };
 }
@@ -592,8 +591,8 @@ async function testQishuiPlaybackEntitlementBoundary() {
   await withHttpsMock(({ url, options }) => {
     const parsed = new URL(url);
     assert.strictEqual(parsed.hostname, 'api.qishui.com', 'VIP-track test must not contact an unexpected host');
-    assert.strictEqual(parsed.pathname, '/luna/pc/track_v2', 'VIP-track test must only use track_v2');
-    assert.strictEqual(options.method, 'POST', 'VIP-track test should resolve the primary POST fixture');
+    assert.strictEqual(parsed.pathname, '/luna/h5/track_v2', 'VIP-track test must only use h5 track_v2');
+    assert.strictEqual(options.method || 'GET', 'GET', 'VIP-track test should resolve the unsigned h5 fixture');
     restrictedRequests += 1;
     return {
       body: qishuiTrackPayload('entitlement-vip-track', true, restrictedUrl),
@@ -622,8 +621,8 @@ async function testQishuiPlaybackEntitlementBoundary() {
   await withHttpsMock(({ url, options }) => {
     const parsed = new URL(url);
     assert.strictEqual(parsed.hostname, 'api.qishui.com', 'free-track test must not contact an unexpected host');
-    assert.strictEqual(parsed.pathname, '/luna/pc/track_v2', 'free-track test must only use track_v2');
-    assert.strictEqual(options.method, 'POST', 'free-track test should resolve the primary POST fixture');
+    assert.strictEqual(parsed.pathname, '/luna/h5/track_v2', 'free-track test must only use h5 track_v2');
+    assert.strictEqual(options.method || 'GET', 'GET', 'free-track test should resolve the unsigned h5 fixture');
     freeRequests += 1;
     return {
       body: qishuiTrackPayload('entitlement-free-track', false, freeUrl),
@@ -640,6 +639,40 @@ async function testQishuiPlaybackEntitlementBoundary() {
     assert.notStrictEqual(result.reason, 'vip_required', 'free Qishui track must not be mislabeled as VIP-only');
   });
   assert.strictEqual(freeRequests, 1, 'free-track playback should resolve in one primary request');
+
+  const anonymousVipUrl = 'https://media.example/anonymous-vip.m4a?secret=must-not-leak';
+  await withHttpsMock(({ url }) => {
+    const parsed = new URL(url);
+    assert.strictEqual(parsed.pathname, '/luna/h5/track_v2', 'anonymous VIP test must only use h5 track_v2');
+    return {
+      body: qishuiTrackPayload('entitlement-anonymous-vip', true, anonymousVipUrl),
+    };
+  }, async () => {
+    const result = await qishui.handleQishuiSongUrl({ id: 'entitlement-anonymous-vip' }, '');
+    const category = result && (
+      result.reason ||
+      result.category ||
+      (result.restriction && (result.restriction.category || result.restriction.reason))
+    );
+    assert.strictEqual(category, 'login_required', 'anonymous listener must be asked to log in for a VIP track');
+    assert.strictEqual(result.playable, false, 'anonymous listener must not play a VIP track');
+    assert.strictEqual(result.url || '', '', 'anonymous VIP response must not expose a media URL');
+    assert(!JSON.stringify(result).includes(anonymousVipUrl), 'anonymous VIP media URL must not leak');
+  });
+
+  const anonymousFreeUrl = 'https://media.example/anonymous-free.m4a?fixture=1';
+  await withHttpsMock(({ url }) => {
+    const parsed = new URL(url);
+    assert.strictEqual(parsed.pathname, '/luna/h5/track_v2', 'anonymous free test must only use h5 track_v2');
+    return {
+      body: qishuiTrackPayload('entitlement-anonymous-free', false, anonymousFreeUrl),
+    };
+  }, async () => {
+    const result = await qishui.handleQishuiSongUrl({ id: 'entitlement-anonymous-free' }, '');
+    assert.strictEqual(result.playable, true, 'anonymous listener must be able to play a free track');
+    assert.strictEqual(result.url, anonymousFreeUrl, 'anonymous free track must retain its resolved media URL');
+    assert.strictEqual(result.loggedIn, false);
+  });
 }
 
 async function main() {

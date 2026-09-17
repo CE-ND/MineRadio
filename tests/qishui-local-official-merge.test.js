@@ -52,37 +52,61 @@ function pcSearchTrack(id, name) {
   };
 }
 
-async function testPcSearchAndPublicFallback() {
+function catalogSearchTrack(id, name) {
+  return {
+    entity: {
+      track: {
+        id,
+        name,
+        duration_ms: 180000,
+        label_info: { only_vip_playable: false },
+        related_info: {
+          artist_links: [{ id: 'artist-fixture', name: '测试歌手' }],
+        },
+      },
+    },
+  };
+}
+
+async function testCatalogSearchAndPublicFallback() {
   const cookie = 'sessionid=fixture-session; sid_tt=fixture-sid; uid_tt=fixture-user';
-  await withHttpsMock(({ url, options }) => {
+  const catalogSearchHandler = ({ url, options }) => {
     const parsed = new URL(url);
-    if (parsed.hostname === 'api.qishui.com' && parsed.pathname === '/luna/pc/search/track') {
+    if (parsed.hostname === 'api.qishui.com' && parsed.pathname === '/luna/search/track') {
       assert.strictEqual(options.method || 'GET', 'GET');
       assert.strictEqual(parsed.searchParams.get('q'), '本地搜索测试');
       assert.strictEqual(parsed.searchParams.get('cursor'), '0');
-      assert(/sessionid=fixture-session/.test(String(options.headers && options.headers.Cookie || '')));
+      assert.strictEqual(parsed.searchParams.get('device_platform'), 'web');
       return {
         body: {
-          data: {
-            result_groups: [{ data: [pcSearchTrack('pc-search-1', '本地搜索测试')] }],
-            has_more: false,
-          },
+          status_info: { status_code: 0 },
+          result_groups: [{ data: [catalogSearchTrack('catalog-search-1', '本地搜索测试')] }],
+          extra: {},
         },
       };
     }
     throw new Error('Unexpected request: ' + parsed.hostname + parsed.pathname);
-  }, async () => {
+  };
+  await withHttpsMock(catalogSearchHandler, async () => {
     const result = await qishui.handleQishuiSearch('本地搜索测试', 8, cookie, 0);
-    assert.strictEqual(result.source, 'qishui-pc-search');
-    assert.strictEqual(result.webSession, true);
+    assert.strictEqual(result.source, 'qishui-catalog-search');
+    assert.strictEqual(result.loggedIn, true);
     assert.strictEqual(result.songs.length, 1);
-    assert.strictEqual(result.songs[0].id, 'pc-search-1');
+    assert.strictEqual(result.songs[0].id, 'catalog-search-1');
     assert.strictEqual(result.songs[0].playbackMode, 'direct-url');
+  });
+
+  await withHttpsMock(catalogSearchHandler, async () => {
+    qishui._test.clearQishuiRuntimeCaches();
+    const result = await qishui.handleQishuiSearch('本地搜索测试', 8, '', 0);
+    assert.strictEqual(result.source, 'qishui-catalog-search', 'catalog search must stay available when logged out');
+    assert.strictEqual(result.loggedIn, false);
+    assert.strictEqual(result.songs[0].id, 'catalog-search-1');
   });
 
   await withHttpsMock(({ url }) => {
     const parsed = new URL(url);
-    if (parsed.hostname === 'api.qishui.com' && parsed.pathname === '/luna/pc/search/track') {
+    if (parsed.hostname === 'api.qishui.com' && parsed.pathname === '/luna/search/track') {
       return { statusCode: 503, body: { message: 'fixture failure' } };
     }
     if (parsed.hostname === 'api-vehicle.volcengine.com' && parsed.pathname === '/v2/search/type') {
@@ -103,75 +127,80 @@ async function testPcSearchAndPublicFallback() {
     const result = await qishui.handleQishuiSearch('本地失败回退测试', 8, cookie, 0);
     assert.strictEqual(result.publicCatalog, true);
     assert.strictEqual(result.songs[0].id, 'public-fallback-1');
-    assert(result.pcSearchError, 'PC search failure must be retained as diagnostic context');
+    assert(result.catalogSearchError, 'catalog search failure must be retained as diagnostic context');
   });
 }
 
-async function testTrackV2GetFallbackAndBitratePriority() {
+async function testH5TrackStreamsAndBitratePriority() {
   const cookie = 'sessionid=fixture-session; sid_tt=fixture-sid';
-  const requests = [];
-  await withHttpsMock(({ url, options }) => {
+  const h5Handler = (h5Body, expectTrackId) => ({ url, options }) => {
     const parsed = new URL(url);
-    if (parsed.hostname !== 'api.qishui.com' || parsed.pathname !== '/luna/pc/track_v2') {
+    if (parsed.hostname !== 'api.qishui.com' || parsed.pathname !== '/luna/h5/track_v2') {
       throw new Error('Unexpected request: ' + parsed.hostname + parsed.pathname);
     }
-    const method = options.method || 'GET';
-    requests.push(method);
-    if (method === 'POST') return { statusCode: 503, body: { message: 'fixture POST failure' } };
-    assert.strictEqual(parsed.searchParams.get('track_id'), 'track-get-fallback');
-    return {
-      body: {
-        data: {
-          track: {
-            id: 'track-get-fallback',
-            duration_ms: 180000,
-            bit_rates: [{
-              playable_url: 'https://media.example/audio.m4a?br=128000',
-              size: 2880000,
-              format: 'm4a',
+    assert.strictEqual(options.method || 'GET', 'GET');
+    assert.strictEqual(parsed.searchParams.get('track_id'), expectTrackId);
+    assert.strictEqual(parsed.searchParams.get('device_platform'), 'web');
+    return { body: h5Body };
+  };
+  const requests = [];
+  await withHttpsMock((context) => {
+    const parsed = new URL(context.url);
+    if (parsed.pathname === '/luna/h5/track_v2') {
+      requests.push('GET');
+      return h5Handler({
+        track: { id: 'track-get-fallback', duration_ms: 180000 },
+        track_player: {
+          video_model: JSON.stringify({
+            status: 10,
+            video_duration: 180,
+            media_type: 'audio',
+            video_list: [{
+              main_url: 'https://media.example/audio.m4a?br=128000',
+              backup_url: '',
+              video_meta: { quality: 'medium' },
+              gear_des_key: 'medium',
             }],
-          },
+          }),
         },
-      },
-    };
+      }, 'track-get-fallback')(context);
+    }
+    throw new Error('Unexpected request: ' + parsed.hostname + parsed.pathname);
   }, async () => {
     const result = await qishui.handleQishuiSongUrl({ id: 'track-get-fallback' }, cookie);
-    assert.deepStrictEqual(requests, ['POST', 'GET']);
+    assert.deepStrictEqual(requests, ['GET'], 'h5 playback must be a single unsigned GET');
     assert.strictEqual(result.playable, true);
+    assert.strictEqual(result.source, 'qishui-h5-track');
     assert.strictEqual(result.url, 'https://media.example/audio.m4a?br=128000');
     assert.strictEqual(result.br, 128000);
     assert.strictEqual(result.level, 'standard');
+    assert.strictEqual(result.encrypted, false);
   });
 
-  await withHttpsMock(({ url, options }) => {
-    const parsed = new URL(url);
-    if (parsed.hostname !== 'api.qishui.com' || parsed.pathname !== '/luna/pc/track_v2') {
-      throw new Error('Unexpected request: ' + parsed.hostname + parsed.pathname);
-    }
-    assert.strictEqual(options.method, 'POST');
-    return {
-      body: {
-        data: {
-          track: {
-            id: 'track-priority',
-            duration_ms: 180000,
-            audio_info: {
-              play_info_list: [{
-                main_play_url: 'https://media.example/primary.m4a?br=128000',
-                duration: 180,
-                format: 'm4a',
-              }],
-            },
-            bit_rates: [{
-              playable_url: 'https://media.example/fallback.flac?br=999000',
-              duration: 180,
-              format: 'flac',
-            }],
-          },
-        },
-      },
-    };
-  }, async () => {
+  await withHttpsMock(h5Handler({
+    track: {
+      id: 'track-priority',
+      duration_ms: 180000,
+      bit_rates: [{
+        playable_url: 'https://media.example/fallback.flac?br=999000',
+        duration: 180,
+        format: 'flac',
+      }],
+    },
+    track_player: {
+      video_model: JSON.stringify({
+        status: 10,
+        video_duration: 180,
+        media_type: 'audio',
+        video_list: [{
+          main_url: 'https://media.example/primary.m4a?br=128000',
+          backup_url: '',
+          video_meta: { quality: 'medium' },
+          gear_des_key: 'medium',
+        }],
+      }),
+    },
+  }, 'track-priority'), async () => {
     const result = await qishui.handleQishuiSongUrl({ id: 'track-priority' }, cookie);
     assert.strictEqual(result.url, 'https://media.example/primary.m4a?br=128000', 'bit_rates playable_url must remain a last-resort source');
   });
@@ -208,15 +237,13 @@ async function testLyricFallbackAndConversion() {
   await withHttpsMock(({ url, options }) => {
     const parsed = new URL(url);
     if (parsed.hostname === 'beta-luna.douyin.com') return { body: { data: {} } };
-    if (parsed.hostname === 'api.qishui.com' && parsed.pathname === '/luna/pc/track_v2') {
+    if (parsed.hostname === 'api.qishui.com' && parsed.pathname === '/luna/h5/track_v2') {
       assert.strictEqual(options.method || 'GET', 'GET');
       return {
         body: {
-          data: {
-            track: {
-              lyric_info: {
-                lyric_entity: { content: '[3000,1000]<0,1000,0>回退歌词' },
-              },
+          track: {
+            lyric_info: {
+              lyric_entity: { content: '[3000,1000]<0,1000,0>回退歌词' },
             },
           },
         },
@@ -225,7 +252,7 @@ async function testLyricFallbackAndConversion() {
     throw new Error('Unexpected request: ' + parsed.hostname + parsed.pathname);
   }, async () => {
     const result = await qishui.handleQishuiLyric('lyric-track-fixture', 'sessionid=fixture-session');
-    assert.strictEqual(result.source, 'qishui-pc-track-v2');
+    assert.strictEqual(result.source, 'qishui-h5-track');
     assert.strictEqual(result.lyric, '[00:03.00]回退歌词');
     assert.strictEqual(result.yrc, '[3000,1000](3000,1000,0)回退歌词');
   });
@@ -345,11 +372,11 @@ async function run() {
   const source = fs.readFileSync(path.join(__dirname, '..', 'qishui-api.js'), 'utf8');
   assert(source.includes("'/api/luna/v1/platform/feed/related-media/'"));
   assert(source.includes("'/api/luna/v1/platform/feed/song-tab/'"));
-  await testPcSearchAndPublicFallback();
-  await testTrackV2GetFallbackAndBitratePriority();
+  await testCatalogSearchAndPublicFallback();
+  await testH5TrackStreamsAndBitratePriority();
   await testLyricFallbackAndConversion();
   await testPcAccountWritesAndComments();
-  console.log('[OK] Qishui local PC search, playback fallback, lyrics, collections, recent-play, and comments verified.');
+  console.log('[OK] Qishui catalog search, h5 playback, lyrics, collections, recent-play, and comments verified.');
 }
 
 run().catch(error => {
