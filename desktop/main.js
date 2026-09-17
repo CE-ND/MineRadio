@@ -2107,9 +2107,13 @@ function focusMainWindow() {
 }
 
 function createOrUpdateTray() {
-  if (process.platform !== 'win32' && process.platform !== 'linux') return;
+  if (process.platform !== 'win32' && process.platform !== 'linux') return false;
   if (!tray) {
     try {
+      if (process.platform === 'win32' && !fs.existsSync(APP_ICON_ICO)) {
+        console.warn('Tray init failed: icon file missing:', APP_ICON_ICO);
+        return false;
+      }
       tray = new Tray(APP_ICON_ICO);
       tray.setToolTip(APP_NAME);
       tray.on('click', () => focusMainWindow());
@@ -2117,7 +2121,7 @@ function createOrUpdateTray() {
     } catch (e) {
       console.warn('Tray init failed:', e.message);
       tray = null;
-      return;
+      return false;
     }
   }
   const desktopMode = fullDesktopModeRuntime.getStatus('tray-menu');
@@ -2140,6 +2144,7 @@ function createOrUpdateTray() {
     },
   ]);
   tray.setContextMenu(menu);
+  return true;
 }
 
 function ensureFullDesktopModeRecoveryTray() {
@@ -5786,18 +5791,23 @@ async function createWindowOnce() {
       return;
     }
     if (!appQuitting && closeBehavior === 'tray') {
-      event.preventDefault();
-      win.__mineradioDesktopModeCloseArmed = false;
-      createOrUpdateTray();
-      win.__mineradioIntentionalHide = true;
-      markMainWindowExpectedVisible(win, false, 'tray-hide');
-      flushMainWindowFxAutosave('tray-hide').finally(() => {
-        if (win.isDestroyed()) return;
-        win.hide();
-        sendWindowState(win);
-        scheduleAppMemoryTrim('tray-hide', 2200);
-      });
-      return;
+      if (!createOrUpdateTray()) {
+        // Hiding without a reachable tray would orphan the running app with no
+        // way back, so fall through to the standard flush+close below instead.
+        console.warn('[Tray] tray unavailable for tray-close; closing for real instead');
+      } else {
+        event.preventDefault();
+        win.__mineradioDesktopModeCloseArmed = false;
+        win.__mineradioIntentionalHide = true;
+        markMainWindowExpectedVisible(win, false, 'tray-hide');
+        flushMainWindowFxAutosave('tray-hide').finally(() => {
+          if (win.isDestroyed()) return;
+          win.hide();
+          sendWindowState(win);
+          scheduleAppMemoryTrim('tray-hide', 2200);
+        });
+        return;
+      }
     }
     if (!mainWindowCloseFlushArmed) {
       event.preventDefault();
