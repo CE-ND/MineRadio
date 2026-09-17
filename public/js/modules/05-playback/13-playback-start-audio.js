@@ -1245,9 +1245,19 @@ async function playQueueAt(idx, opts) {
       } else if (!opts.startupAutoplay && opts.qualitySwitch) {
         showSourceFallbackNotice('音质已切换', '实际播放: ' + resolvedQualityText + '。');
       }
+      if (isQishuiPlayback && data && data.url && data.trial && typeof tryTrialFullVersionUpgrade === 'function') {
+        var trialUpgradeResult = await tryTrialFullVersionUpgrade(song, data, idx, token, retryPlaybackOpts);
+        if (token !== trackSwitchToken) return;
+        if (trialUpgradeResult !== null) return trialUpgradeResult === true;
+        // No full version on other platforms — keep playing the qishui trial.
+      }
       if (data.trial) {
         var txt;
-        if (data.loggedIn && data.vipLevel === 'svip') txt = '此歌曲需要单曲、专辑购买或更高权限';
+        if (isQishuiPlayback) {
+          txt = data.loggedIn
+            ? (data.trialUpgradeSearched ? '汽水对该曲仅提供试听 · 其它平台未找到完整版本' : '汽水对该曲仅提供试听片段')
+            : '当前未登录汽水 · 仅播放试听片段';
+        } else if (data.loggedIn && data.vipLevel === 'svip') txt = '此歌曲需要单曲、专辑购买或更高权限';
         else if (data.loggedIn && data.vipLevel === 'vip') txt = '此歌曲需要 SVIP 或购买 · 当前仅播放试听片段';
         else if (data.loggedIn) txt = '此歌曲需 VIP · 当前仅播放试听片段';
         else txt = '当前未登录 · 仅播放试听片段';

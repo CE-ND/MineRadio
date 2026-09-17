@@ -744,6 +744,70 @@ async function tryAutoPlaybackFallback(song, data, idx, token, opts) {
   }
   return await skipFailedQueueItem(idx, token, '没有找到可播放的已登录平台版本，正在播放下一首。', skipOpts);
 }
+// Qishui's h5 channel serves 45-60s trial clips for VIP-gated tracks. When
+// another logged-in provider can supply the FULL version of the same song,
+// prefer it over the trial clip; if none exists, keep the qishui trial playing
+// instead of skipping the track.
+async function tryTrialFullVersionUpgrade(song, data, idx, token, opts) {
+  opts = opts || {};
+  if (opts.fallbackDepth > 0) return null;
+  if (!song || song.type === 'local' || song.type === 'podcast' || song.source === 'podcast') return null;
+  var fromLabel = playbackProviderLabel(song);
+  var alternateProviders = alternatePlaybackProviders(song);
+  if (!alternateProviders.length) return null;
+  if (!opts.startupAutoplay) {
+    showSourceFallbackNotice('试听不将就', fromLabel + ' 仅提供试听片段，正在检查 ' + alternateProviders.map(sourceFallbackProviderTitle).join('、') + ' 的完整版本。');
+  }
+  for (var providerIndex = 0; providerIndex < alternateProviders.length; providerIndex++) {
+    if (token !== trackSwitchToken) return false;
+    var alternateProvider = alternateProviders[providerIndex];
+    var targetLabel = sourceFallbackProviderTitle(alternateProvider);
+    try {
+      var alternate = await searchAlternatePlatformSong(song, alternateProvider, null);
+      if (token !== trackSwitchToken) return false;
+      if (!alternate) continue;
+      var alternateData = typeof resolveAlbumGaplessPlaybackData === 'function'
+        ? await resolveAlbumGaplessPlaybackData(alternate)
+        : null;
+      if (token !== trackSwitchToken) return false;
+      // Only a full version counts as an upgrade; another provider's trial
+      // clip adds nothing over the qishui trial we already have.
+      if (!alternateData || !alternateData.url || alternateData.trial) continue;
+      var originalSong = playQueue[idx];
+      alternate.autoFallbackFrom = songProviderKey(song);
+      alternate.trialUpgradeFrom = fromLabel;
+      var committedCandidate = hydrateCustomCover(alternate);
+      playQueue[idx] = committedCandidate;
+      safeRenderQueuePanel('trial-upgrade-provisional', { scrollCurrent: miniQueueOpen });
+      safeShelfRebuild('trial-upgrade-provisional');
+      var upgradePlaybackOpts = {
+        fallbackDepth: 1,
+        startupAutoplay: !!opts.startupAutoplay,
+        preserveHomeState: !!opts.preserveHomeState,
+        suppressPlayFailureNotice: true,
+        preResolvedPlaybackData: alternateData,
+        fallbackOriginalSong: originalSong,
+        fallbackCandidateSong: committedCandidate,
+        qqQualityTried: ['hires', 'lossless', 'exhigh', 'standard']
+      };
+      if (opts.resumeAt != null) upgradePlaybackOpts.resumeAt = opts.resumeAt;
+      var upgradeToken = trackSwitchToken;
+      var upgradeStarted = await playQueueAt(idx, upgradePlaybackOpts);
+      if (upgradeToken !== trackSwitchToken) return false;
+      if (upgradeStarted === true) {
+        if (!opts.startupAutoplay) showSourceFallbackNotice('已切换完整版本', (song.name || '当前歌曲') + ' 已从 ' + fromLabel + ' 试听切到 ' + targetLabel + ' 完整音源。');
+        return true;
+      }
+      restoreSourceFallbackQueueItem(idx, originalSong, committedCandidate, upgradeToken);
+      token = upgradeToken;
+    } catch (e) {
+      if (token !== trackSwitchToken) return false;
+      console.warn('[TrialUpgrade]', alternateProvider, e && (e.message || e));
+    }
+  }
+  data.trialUpgradeSearched = true;
+  return null;
+}
 function handlePlaybackUnavailable(song, data) {
   hideLoading();
   forcePlaybackControlsInteractive();
