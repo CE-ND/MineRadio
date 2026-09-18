@@ -940,7 +940,7 @@ function recoverCuefieldAutoMixEndedOutgoing(pending, context, reason) {
     if (playMode === 'single') {
       playQueueAt(index, { autoRepeat: true, preserveHomeState: true, suppressPlayFailureNotice: true });
     } else if (typeof nextTrack === 'function') {
-      nextTrack(false);
+      nextTrack(false, { autoAdvance: true });
     } else if (pending && isFinite(Number(pending.nextIndex))) {
       playQueueAt(Number(pending.nextIndex), { skipShuffleOrder: true, suppressPlayFailureNotice: true, preserveHomeState: true });
     }

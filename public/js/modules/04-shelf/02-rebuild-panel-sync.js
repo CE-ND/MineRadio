@@ -14,14 +14,26 @@ function scheduleShelfRebuild(reason, asyncCards) {
   deferredShelfRebuild.asyncCards = asyncCards !== false;
   deferredShelfRebuild.token += 1;
   var token = deferredShelfRebuild.token;
-  if (deferredShelfRebuild.raf) cancelAnimationFrame(deferredShelfRebuild.raf);
-  deferredShelfRebuild.raf = requestAnimationFrame(function () {
-    deferredShelfRebuild.raf = 0;
-    scheduleUiWarmTask(function () {
-      if (token !== deferredShelfRebuild.token) return;
-      safeShelfRebuild(deferredShelfRebuild.reason, deferredShelfRebuild.asyncCards);
-    }, 260);
-  });
+  function arm() {
+    if (token !== deferredShelfRebuild.token) return;
+    if (deferredShelfRebuild.raf) cancelAnimationFrame(deferredShelfRebuild.raf);
+    deferredShelfRebuild.raf = requestAnimationFrame(function () {
+      deferredShelfRebuild.raf = 0;
+      scheduleUiWarmTask(function () {
+        if (token !== deferredShelfRebuild.token) return;
+        safeShelfRebuild(deferredShelfRebuild.reason, deferredShelfRebuild.asyncCards);
+      }, 260);
+    });
+  }
+  // Track-switch settle gate: a burst of cuts merges into one rebuild ~1s
+  // after the last switch. Bypassed while the queue panel is open - the user
+  // may be picking the next song from it.
+  if (typeof isTrackSwitchSettlePending === 'function' && isTrackSwitchSettlePending()
+    && !(typeof isPlaylistPanelVisibleForRender === 'function' && isPlaylistPanelVisibleForRender())) {
+    setTimeout(arm, trackSwitchSettleRemainingMs() + 60);
+    return;
+  }
+  arm();
 }
 function safeShelfCloseContent(reason) {
   if (!shelfManager || typeof shelfManager.closeContent !== 'function') return false;

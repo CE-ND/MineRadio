@@ -1764,6 +1764,12 @@ function scheduleStageLyricPrewarmForIndex(targetIndex, reason, delay) {
   var wait = delay == null ? 90 : Number(delay);
   if (!isFinite(wait)) wait = 90;
   wait = Math.max(0, wait);
+  // Track-switch settle gate: while the user is still cutting tracks, push the
+  // build past the settle window. The floor must precede dueAt so the
+  // coalescing comparison below sees the floored value.
+  if (typeof isTrackSwitchSettlePending === 'function' && isTrackSwitchSettlePending()) {
+    wait = Math.max(wait, trackSwitchSettleRemainingMs() + 40);
+  }
   if (lightweight && stageLyricPrewarm.mesh) {
     var guardIndex = prewarmIndex != null ? prewarmIndex : chooseStageLyricPrewarmIndex();
     if (stageLyricPrewarmFullCanServeIndex(guardIndex)) {
@@ -1849,6 +1855,11 @@ function stageLyricMultiLineWarmupLoad() {
 }
 function stageLyricFullTrackWarmupDelay(delay, reason) {
   var base = Math.max(64, Number(delay) || 180);
+  if (typeof isTrackSwitchSettlePending === 'function' && isTrackSwitchSettlePending()) {
+    // Neutralizes the aggressive 24ms 'lyrics-ready-preload' floor while the
+    // user is still cutting tracks; other reason tiers resume after settle.
+    return Math.max(base, trackSwitchSettleRemainingMs() + 40);
+  }
   if (!stageLyricMultiLineWarmupLoad()) return base;
   var reasonText = String(reason || '');
   if (/lyrics-ready-preload/i.test(reasonText)) return Math.max(base, 24);
@@ -1864,6 +1875,9 @@ function stageLyricFullTrackWarmupDelay(delay, reason) {
 
 function queueStageLyricFullTrackWarmupRetry(reason, delay) {
   var retryDelay = clampRange(Number(delay) || 140, 96, 420);
+  if (typeof isTrackSwitchSettlePending === 'function' && isTrackSwitchSettlePending()) {
+    retryDelay = Math.max(retryDelay, trackSwitchSettleRemainingMs() + 40);
+  }
   var targetAt = stageLyricNowMs() + retryDelay;
   if (
     stageLyricFullTrackWarmupTimer && stageLyricFullTrackWarmupTargetAt &&

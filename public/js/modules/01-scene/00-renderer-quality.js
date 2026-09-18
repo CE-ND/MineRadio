@@ -167,6 +167,24 @@ function markRenderInteraction(reason, holdMs) {
 function isRenderInteractionActive(now) {
   return (now || performance.now()) < renderInteractionBoostUntil;
 }
+// Track-switch settle gate: while pending, expensive per-track visual builds
+// (full-track lyric warmups, shelf redraws) postpone themselves until the user
+// stops switching for ~1s. Timestamp-based trailing debounce - consumers floor
+// their own delays with trackSwitchSettleRemainingMs(); when the window expires
+// their already-armed timers simply fire and build the final track.
+var TRACK_SWITCH_SETTLE_MS = 1000;
+var TRACK_SWITCH_SETTLE_FIRST_MS = 320;
+var trackSwitchSettleUntil = 0;
+function markTrackSwitchSettlePending(ms) {
+  if (isDeepBackgroundMode()) return;
+  trackSwitchSettleUntil = Math.max(trackSwitchSettleUntil, performance.now() + (ms || TRACK_SWITCH_SETTLE_MS));
+}
+function isTrackSwitchSettlePending() {
+  return performance.now() < trackSwitchSettleUntil;
+}
+function trackSwitchSettleRemainingMs() {
+  return Math.max(0, trackSwitchSettleUntil - performance.now());
+}
 function getRenderLoadTier() {
   var cssPixels = Math.max(1, innerWidth * innerHeight);
   var renderPixels = (typeof getRenderPixelLoad === 'function') ? getRenderPixelLoad() : cssPixels;

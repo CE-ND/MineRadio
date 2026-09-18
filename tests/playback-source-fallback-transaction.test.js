@@ -249,7 +249,7 @@ function testStaticRecoveryWiring() {
   assert(/clearPlaybackResumeWatchdogs\(\);\s*playbackResumeRecovery\.serial =/.test(controlsText));
   assert(/\['play', 'playing', 'pause'[\s\S]{0,500}audioEl !== audio/.test(progressText));
   assert(/\['error', 'stalled'\][\s\S]{0,700}schedulePlaybackStallRecovery/.test(progressText));
-  assert((startText.match(/else setTimeout\(nextTrack, 0\)/g) || []).length >= 2, 'normal ended playback must still advance');
+  assert((startText.match(/nextTrack\(false, \{ autoAdvance: true \}\)/g) || []).length >= 2, 'normal ended playback must still advance (auto-advance tagged)');
   const nextTrackBlock = controlsText.slice(
     controlsText.indexOf('function nextTrack'),
     controlsText.indexOf('function prevTrack')

@@ -806,7 +806,16 @@ void main(){ vec4 t = texture2D(uDotTex, gl_PointCoord); if (t.a < 0.02) discard
       if (uniforms.uTime.value - lastUpdate > 0.8) {
         lastUpdate = uniforms.uTime.value;
         var nextSig = sig();
-        if (nextSig !== lastSig) rebuild();
+        if (nextSig !== lastSig) {
+          // Track-switch settle gate: sig includes currentIdx, so every cut
+          // re-dirties the signature - merge into the single trailing rebuild
+          // at settle end instead of rebuilding mid-burst.
+          if (typeof isTrackSwitchSettlePending === 'function' && isTrackSwitchSettlePending()) {
+            scheduleShelfRebuild('sig-drift-settle', true);
+          } else {
+            rebuild();
+          }
+        }
         else {
           var pulseBucket = Math.round((bass + beatPulse * 0.85) * 10);
           var redrawInterval = playing ? 1.35 : 4.0;
@@ -833,6 +842,12 @@ void main(){ vec4 t = texture2D(uDotTex, gl_PointCoord); if (t.a < 0.02) discard
       }
       if (group && mode !== 'off' && uniforms.uTime.value - lastUpdate > 0.2) {
         lastUpdate = uniforms.uTime.value;
+        // Track-switch settle gate: merge cover-driven rebuilds into the one
+        // trailing rebuild scheduled by scheduleShelfRebuild at settle end.
+        if (typeof isTrackSwitchSettlePending === 'function' && isTrackSwitchSettlePending()) {
+          if (typeof scheduleShelfRebuild === 'function') scheduleShelfRebuild('on-cover-change-settle', true);
+          return;
+        }
         rebuild();
       }
     },

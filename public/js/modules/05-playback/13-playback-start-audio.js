@@ -934,7 +934,7 @@ async function playLocalQueueSong(song, idx, token, firstVisualPlay, opts, resum
     finalizeListenSession(true);
     if (playAlbumGaplessNextOnEnded(token)) return;
     if (playMode === 'single') setTimeout(function () { playQueueAt(currentIdx, { autoRepeat: true, suppressPlayFailureNotice: true }); }, 0);
-    else setTimeout(nextTrack, 0);
+    else setTimeout(function () { nextTrack(false, { autoAdvance: true }); }, 0);
   };
   audio.onloadedmetadata = function () {
     if (token !== trackSwitchToken || !currentLocalSong || currentLocalSong.localKey !== song.localKey) return;
@@ -1043,6 +1043,12 @@ async function playQueueAt(idx, opts) {
       } catch (e) { }
     }
     var firstVisualPlay = !firstPlayDone;
+    // Settle gate: user-initiated switches defer heavy visual builds ~1s so a
+    // burst of cuts only builds the final track's scene. Auto-advance, repeat,
+    // gapless handoff, quality switches and restore paths stay immediate.
+    if (!qualitySwitch && !albumGaplessHandoff && !opts.autoRepeat && !opts.resumeRecovery && !opts.startupAutoplay && !opts.autoAdvance) {
+      markTrackSwitchSettlePending(firstVisualPlay ? TRACK_SWITCH_SETTLE_FIRST_MS : TRACK_SWITCH_SETTLE_MS);
+    }
     markPlayPhase('track-setup');
     var song = safePlaybackStep('hydrate-song', function () { return hydrateCustomCover(playQueue[idx]); }) || playQueue[idx];
     playQueue[idx] = song;
@@ -1338,7 +1344,7 @@ async function playQueueAt(idx, opts) {
         finalizeListenSession(true);
         if (playAlbumGaplessNextOnEnded(token)) return;
         if (playMode === 'single') setTimeout(function () { playQueueAt(currentIdx, { autoRepeat: true, suppressPlayFailureNotice: true }); }, 0);
-        else setTimeout(nextTrack, 0);
+        else setTimeout(function () { nextTrack(false, { autoAdvance: true }); }, 0);
       };
       scheduleAudioResumePosition(audio, opts.resumeAt != null ? opts.resumeAt : restoreResumeAt, token);
       if (restoreResumeAt > 0) pendingPlaybackResumeAt = 0;
