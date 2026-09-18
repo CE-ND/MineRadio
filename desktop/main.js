@@ -5663,6 +5663,13 @@ async function createWindowOnce() {
     if (!isMainFrame || errorCode === -3) return;
     console.warn('[StartupWindow] did-fail-load:', errorCode, errorDescription, validatedURL || '');
   });
+  // Dev diagnostics: MINERADIO_RENDERER_LOG=1 forwards renderer console to stdout.
+  if (process.env.MINERADIO_RENDERER_LOG === '1') {
+    win.webContents.on('console-message', (_event, level, message, line, sourceId) => {
+      const tag = ['LOG', 'LOG', 'WARN', 'ERR'][level] || 'LOG';
+      console.log(`[renderer:${tag}] ${message} (${(sourceId || '').split('/').pop()}:${line})`);
+    });
+  }
   win.webContents.on('render-process-gone', (_event, details) => {
     const cleanupPromise = Promise.allSettled([
       stopWallpaperEngineRuntimeForRenderer(`render-process-gone:${details && details.reason || 'unknown'}`),
